@@ -1,3 +1,4 @@
+
 'use client';
 
 import type { ReactElement } from 'react';
@@ -28,7 +29,8 @@ export default function Home(): ReactElement {
   }, []);
 
   useEffect(() => {
-    const lines = inputData.split('\n').length;
+    // Ensure at least one line number is always shown
+    const lines = Math.max(1, inputData.split('\n').length);
     const numbers = Array.from({ length: lines }, (_, i) => i + 1).join('\n');
     setLineNumbers(numbers);
   }, [inputData]);
@@ -139,6 +141,7 @@ export default function Home(): ReactElement {
       case 'xmlToJson':
         return <FileJson className="h-5 w-5 mr-2" />;
       case 'jsonToXml':
+         return <FileCode className="h-5 w-5 mr-2" />; // Use FileCode for XML consistency
       case 'xmlToXsd':
          return <FileX className="h-5 w-5 mr-2" />; // Using FileX for XSD as a placeholder
       default:
@@ -184,14 +187,16 @@ export default function Home(): ReactElement {
           </CardHeader>
           <CardContent className="flex-grow flex flex-col">
             <div className="relative flex-grow">
+              {/* Line numbers container */}
               <div
                 ref={lineNumbersRef}
-                className="absolute left-0 top-0 bottom-0 w-10 pt-2 pr-2 text-right text-muted-foreground select-none font-mono text-sm overflow-hidden bg-input border-r border-border rounded-l-md"
+                className="absolute left-0 top-0 bottom-0 w-12 pt-2 pr-3 text-right text-muted-foreground select-none font-mono text-sm overflow-hidden bg-input border-r border-border rounded-l-md"
                 aria-hidden="true"
-                style={{ lineHeight: '1.5rem' }} // Adjust based on textarea line height if needed
+                style={{ lineHeight: '1.5rem' }} // Matches Textarea's leading-6
               >
                 {lineNumbers}
               </div>
+              {/* Input Textarea */}
               <Textarea
                 ref={textareaRef}
                 placeholder={`Paste your ${inputType === 'xmlToJson' || inputType === 'xmlToXsd' ? 'XML' : 'JSON'} here...`}
@@ -199,8 +204,8 @@ export default function Home(): ReactElement {
                 onChange={handleInputChange}
                 onScroll={handleScroll}
                 className={cn(
-                    "flex-grow min-h-[300px] md:min-h-[400px] bg-input text-card-foreground font-mono text-sm resize-none pl-12 rounded-l-none", // Added pl-12 for line numbers, remove left rounding
-                    "leading-6" // Explicitly set line height
+                    "flex-grow min-h-[300px] md:min-h-[400px] bg-input text-card-foreground font-mono text-sm resize-none pl-14 rounded-l-none border-l-0", // Increased pl for wider line numbers, removed left border/rounding
+                    "leading-6" // Explicitly set line height to match line numbers div
                  )}
                 aria-label={getInputLabel()}
                 wrap="off" // Prevent wrapping to keep line numbers accurate
@@ -218,6 +223,7 @@ export default function Home(): ReactElement {
              </CardTitle>
           </CardHeader>
           <CardContent className="flex-grow flex flex-col">
+             {/* Output Textarea */}
             <Textarea
               placeholder="Output will appear here..."
               value={outputData}
