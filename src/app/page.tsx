@@ -1,13 +1,14 @@
 'use client';
 
 import type { ReactElement } from 'react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { FileJson, FileCode, FileX } from 'lucide-react';
 import { convertToJson, convertToXml, convertToXsd } from '@/lib/conversion';
 import { useToast } from '@/hooks/use-toast';
+import { cn } from '@/lib/utils';
 
 type ConversionType = 'xmlToJson' | 'jsonToXml' | 'xmlToXsd';
 
@@ -16,12 +17,21 @@ export default function Home(): ReactElement {
   const [inputData, setInputData] = useState<string>('');
   const [outputData, setOutputData] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [lineNumbers, setLineNumbers] = useState<string>('1');
   const { toast } = useToast();
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const lineNumbersRef = useRef<HTMLDivElement>(null);
 
   // Avoid hydration issues by setting initial state after mount
   useEffect(() => {
     setInputType('xmlToJson');
   }, []);
+
+  useEffect(() => {
+    const lines = inputData.split('\n').length;
+    const numbers = Array.from({ length: lines }, (_, i) => i + 1).join('\n');
+    setLineNumbers(numbers);
+  }, [inputData]);
 
 
   const handleConvert = () => {
@@ -35,11 +45,7 @@ export default function Home(): ReactElement {
       } else if (inputType === 'jsonToXml') {
         result = convertToXml(inputData);
       } else if (inputType === 'xmlToXsd') {
-        // Placeholder for XML to XSD conversion
-        // Note: A reliable browser-based XML to XSD generation is complex.
-        // This might require a server-side component or a more specialized library.
         result = convertToXsd(inputData);
-        // For now, display a message indicating it's not fully implemented or uses a basic approach.
         if (result) {
            toast({
             title: "XML to XSD (Basic)",
@@ -73,6 +79,22 @@ export default function Home(): ReactElement {
       setIsLoading(false);
     }
   };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value;
+    setInputData(value);
+    // Sync scroll for line numbers when input changes (e.g., pasting)
+    if (textareaRef.current && lineNumbersRef.current) {
+      lineNumbersRef.current.scrollTop = textareaRef.current.scrollTop;
+    }
+  };
+
+  const handleScroll = () => {
+    if (textareaRef.current && lineNumbersRef.current) {
+      lineNumbersRef.current.scrollTop = textareaRef.current.scrollTop;
+    }
+  };
+
 
   const getInputLabel = (): string => {
     switch (inputType) {
@@ -131,22 +153,22 @@ export default function Home(): ReactElement {
         <p className="text-muted-foreground mt-2">Easily convert between XML, JSON, and basic XSD formats.</p>
       </header>
 
-      <div className="flex justify-center mb-6 space-x-2">
+      <div className="flex justify-center mb-6 space-x-2 flex-wrap gap-2">
         <Button
           variant={inputType === 'xmlToJson' ? 'default' : 'outline'}
-          onClick={() => setInputType('xmlToJson')}
+          onClick={() => { setInputType('xmlToJson'); setInputData(''); setOutputData(''); }}
         >
           <FileCode className="h-4 w-4 mr-2" /> XML to JSON
         </Button>
         <Button
           variant={inputType === 'jsonToXml' ? 'default' : 'outline'}
-          onClick={() => setInputType('jsonToXml')}
+          onClick={() => { setInputType('jsonToXml'); setInputData(''); setOutputData(''); }}
         >
           <FileJson className="h-4 w-4 mr-2" /> JSON to XML
         </Button>
         <Button
           variant={inputType === 'xmlToXsd' ? 'default' : 'outline'}
-          onClick={() => setInputType('xmlToXsd')}
+          onClick={() => { setInputType('xmlToXsd'); setInputData(''); setOutputData(''); }}
         >
          <FileX className="h-4 w-4 mr-2" /> XML to XSD
         </Button>
@@ -161,13 +183,30 @@ export default function Home(): ReactElement {
             </CardTitle>
           </CardHeader>
           <CardContent className="flex-grow flex flex-col">
-            <Textarea
-              placeholder={`Paste your ${inputType === 'xmlToJson' || inputType === 'xmlToXsd' ? 'XML' : 'JSON'} here...`}
-              value={inputData}
-              onChange={(e) => setInputData(e.target.value)}
-              className="flex-grow min-h-[300px] md:min-h-[400px] bg-card text-card-foreground font-mono text-sm resize-none"
-              aria-label={getInputLabel()}
-            />
+            <div className="relative flex-grow">
+              <div
+                ref={lineNumbersRef}
+                className="absolute left-0 top-0 bottom-0 w-10 pt-2 pr-2 text-right text-muted-foreground select-none font-mono text-sm overflow-hidden bg-input border-r border-border rounded-l-md"
+                aria-hidden="true"
+                style={{ lineHeight: '1.5rem' }} // Adjust based on textarea line height if needed
+              >
+                {lineNumbers}
+              </div>
+              <Textarea
+                ref={textareaRef}
+                placeholder={`Paste your ${inputType === 'xmlToJson' || inputType === 'xmlToXsd' ? 'XML' : 'JSON'} here...`}
+                value={inputData}
+                onChange={handleInputChange}
+                onScroll={handleScroll}
+                className={cn(
+                    "flex-grow min-h-[300px] md:min-h-[400px] bg-input text-card-foreground font-mono text-sm resize-none pl-12 rounded-l-none", // Added pl-12 for line numbers, remove left rounding
+                    "leading-6" // Explicitly set line height
+                 )}
+                aria-label={getInputLabel()}
+                wrap="off" // Prevent wrapping to keep line numbers accurate
+                spellCheck="false"
+              />
+            </div>
           </CardContent>
         </Card>
 
@@ -186,6 +225,8 @@ export default function Home(): ReactElement {
               className="flex-grow min-h-[300px] md:min-h-[400px] bg-card text-card-foreground font-mono text-sm resize-none transition-opacity duration-300"
               aria-label={getOutputLabel()}
               style={{ opacity: isLoading ? 0.5 : 1 }}
+               wrap="off"
+               spellCheck="false"
             />
           </CardContent>
         </Card>
