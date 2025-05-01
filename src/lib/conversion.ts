@@ -92,13 +92,10 @@ export function convertToXsd(xmlString: string): string | null {
     type IndexableElement = {[key: string]: any};
 
     const generateSchema = (obj: IndexableElement, elementName: string): string => {
-      let schema = `<xs:element name="${elementName}">\n  <xs:complexType>\n    <xs:sequence>\n`;
-      let attributesSchema = ''; // This variable seems unused, consider removing if not needed later.
+      let schema = `<xsd:element name="${elementName}">\n  <xsd:complexType>\n    <xsd:sequence>\n`;
 
       const objAttributes = obj._attributes as {[key: string]: string} | undefined;
       const objKeys = Object.keys(obj).filter(k => k !== '_attributes' && k !== '_text' && k !== '_cdata');
-
-      let hasChildElements = objKeys.length > 0;
 
       for (const key of objKeys) {
         const child = obj[key];
@@ -124,29 +121,33 @@ export function convertToXsd(xmlString: string): string | null {
            // Adjust the maxOccurs in the generated schema string if needed
            if (Array.isArray(child)) {
              // A bit hacky string replace, might need more robust approach
-             schema += nestedSchema.replace(/<xs:element name="[^"]+"/, `$& minOccurs="0" maxOccurs="unbounded"`);
+             schema += nestedSchema.replace(/<xsd:element name="[^"]+"/, `$& minOccurs="1" maxOccurs="unbounded"`);
            } else {
              schema += nestedSchema; // minOccurs/maxOccurs are handled inside generateSchema call for single elements
            }
 
         } else {
            // Simple element (might have attributes/text) or array of simple types
-           schema += `      <xs:element name="${key}" type="xs:string" minOccurs="0" maxOccurs="${maxOccurs}"/>\n`; // Assume string type
+           if (maxOccurs == "1") {
+             schema += `      <xsd:element name="${key}" type="xsd:string"/>\n`; // Assume string type
+           } else {
+             schema += `      <xsd:element name="${key}" type="xsd:string" minOccurs="1" maxOccurs="${maxOccurs}"/>\n`; // Assume string type
+           }
         }
       }
 
 
-      schema += `    </xs:sequence>\n`;
+      schema += `    </xsd:sequence>\n`;
 
       // Add attributes directly to the complexType
       if (objAttributes) {
           for (const attr in objAttributes) {
-              schema += `    <xs:attribute name="${attr}" type="xs:string" use="optional"/>\n`; // Assume string type and optional
+              schema += `    <xsd:attribute name="${attr}" type="xsd:string" use="optional"/>\n`; // Assume string type and optional
           }
       }
 
 
-      schema += `  </xs:complexType>\n</xs:element>\n`;
+      schema += `  </xsd:complexType>\n</xsd:element>\n`;
       return schema;
     };
 
@@ -156,9 +157,9 @@ export function convertToXsd(xmlString: string): string | null {
     }
     const rootElement = jsObject[rootElementName] as IndexableElement; // Use the indexable type
 
-    let finalSchema = `<?xml version="1.0" encoding="UTF-8" ?>\n<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">\n\n`;
+    let finalSchema = `<?xml version="1.0" encoding="UTF-8" ?>\n<xsd:schema xmlns:xsd="http://www.w3.org/2001/XMLSchema">\n`;
     finalSchema += generateSchema(rootElement, rootElementName);
-    finalSchema += `</xs:schema>`;
+    finalSchema += `</xsd:schema>`;
 
     return finalSchema;
 
