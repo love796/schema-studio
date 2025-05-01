@@ -1,4 +1,4 @@
-import convert from 'xml-js';
+import convert, { Element, ElementCompact } from 'xml-js';
 
 /**
  * Converts XML string to JSON string.
@@ -8,15 +8,32 @@ import convert from 'xml-js';
  */
 export function convertToJson(xmlString: string): string | null {
   try {
+    // Basic validation: Ensure input is not empty or just whitespace
+    if (!xmlString || xmlString.trim().length === 0) {
+      throw new Error("Input XML string cannot be empty.");
+    }
     const result = convert.xml2json(xmlString, { compact: true, spaces: 4 });
     // Basic validation: Check if it's somewhat JSON-like
     if (result.trim().startsWith('{') || result.trim().startsWith('[')) {
-        return result;
+        // Further validation: Try parsing the result to ensure it's valid JSON
+        try {
+            JSON.parse(result);
+            return result;
+        } catch (jsonParseError: any) {
+             throw new Error(`Conversion resulted in invalid JSON: ${jsonParseError.message}`);
+        }
     }
-    throw new Error("Invalid XML resulted in non-JSON output.");
+    // If xml2json didn't throw but output isn't JSON-like, it suggests invalid input XML structure
+    throw new Error("Invalid XML structure or content.");
   } catch (error: any) {
     console.error("XML to JSON conversion error:", error);
-    throw new Error(`Invalid XML: ${error.message}`);
+    // Improve error message clarity
+    const message = error.message.includes("Text data outside of root node")
+      ? "Invalid XML: Text data found outside the root element."
+      : error.message.includes("Unexpected close tag")
+      ? `Invalid XML: ${error.message}. Check tag matching.`
+      : `Invalid XML: ${error.message}`;
+    throw new Error(message);
   }
 }
 
@@ -28,20 +45,30 @@ export function convertToJson(xmlString: string): string | null {
  */
 export function convertToXml(jsonString: string): string | null {
   try {
-    // Basic validation: Check if it's somewhat JSON-like
-     let parsedJson;
+    // Basic validation: Ensure input is not empty or just whitespace
+    if (!jsonString || jsonString.trim().length === 0) {
+        throw new Error("Input JSON string cannot be empty.");
+    }
+    // Robust validation: Try parsing the JSON first
+    let parsedJson;
     try {
         parsedJson = JSON.parse(jsonString);
-    } catch (parseError) {
-         throw new Error("Invalid JSON format.");
+    } catch (parseError: any) {
+         throw new Error(`Invalid JSON format: ${parseError.message}`);
     }
+
+    // Check if the parsed JSON is an object or array (required by xml-js)
+     if (typeof parsedJson !== 'object' || parsedJson === null) {
+        throw new Error("Invalid JSON: Input must be a JSON object or array.");
+     }
 
     const result = convert.json2xml(jsonString, { compact: true, spaces: 4 });
     // Basic validation: Check if it's somewhat XML-like
     if (result.trim().startsWith('<')) {
         return result;
     }
-    throw new Error("Invalid JSON resulted in non-XML output.");
+    // This case should be less likely if JSON parsing succeeded, but good as a fallback
+    throw new Error("Conversion failed: Could not generate valid XML from the provided JSON.");
   } catch (error: any) {
     console.error("JSON to XML conversion error:", error);
      throw new Error(`Conversion Error: ${error.message}`);
@@ -58,79 +85,64 @@ export function convertToXml(jsonString: string): string | null {
  */
 export function convertToXsd(xmlString: string): string | null {
   try {
-    const jsObject = convert.xml2js(xmlString, { compact: true });
+    // Assert the type to allow string indexing
+    const jsObject = convert.xml2js(xmlString, { compact: true }) as {[key: string]: any};
 
-    const generateSchema = (obj: any, elementName: string): string => {
+    // Type assertion for objects being processed by generateSchema
+    type IndexableElement = {[key: string]: any};
+
+    const generateSchema = (obj: IndexableElement, elementName: string): string => {
       let schema = `<xs:element name="${elementName}">\n  <xs:complexType>\n    <xs:sequence>\n`;
-      let attributesSchema = '';
+      let attributesSchema = ''; // This variable seems unused, consider removing if not needed later.
 
-      if (obj._attributes) {
-          attributesSchema += `  <xs:complexType>\n    <xs:simpleContent>\n      <xs:extension base="xs:string">\n`; // Assume string base for simplicity
-          for (const attr in obj._attributes) {
-              attributesSchema += `        <xs:attribute name="${attr}" type="xs:string" use="optional"/>\n`; // Assume string type and optional
-          }
-          attributesSchema += `      </xs:extension>\n    </xs:simpleContent>\n  </xs:complexType>\n`;
-          // Note: This attribute handling is basic. Mixing attributes and complex content requires different XSD structure.
-          // For simplicity here, we'll place attributes outside the sequence if there are child elements.
-          // A more robust solution would analyze the structure better.
-      }
+      const objAttributes = obj._attributes as {[key: string]: string} | undefined;
+      const objKeys = Object.keys(obj).filter(k => k !== '_attributes' && k !== '_text' && k !== '_cdata');
 
+      let hasChildElements = objKeys.length > 0;
 
-      let hasChildElements = false;
-      for (const key in obj) {
-        if (key === '_attributes' || key === '_text' || key === '_cdata') continue;
-        hasChildElements = true;
+      for (const key of objKeys) {
         const child = obj[key];
         const maxOccurs = Array.isArray(child) ? 'unbounded' : '1';
 
-        if (typeof child === 'object' && child !== null && !Array.isArray(child)) {
-           // If it's a single object (not an array element)
-          if (Object.keys(child).some(k => k !== '_attributes' && k !== '_text' && k !== '_cdata')) {
-             // Has nested elements
-            schema += generateSchema(child, key);
-          } else {
-             // Simple element (might have attributes or text)
-             schema += `      <xs:element name="${key}" type="xs:string" minOccurs="0" maxOccurs="${maxOccurs}"/>\n`; // Assume string
-          }
-        } else if (Array.isArray(child)) {
-            // If it's an array, process the first element to determine structure
-             if (child.length > 0 && typeof child[0] === 'object' && child[0] !== null) {
-                 if (Object.keys(child[0]).some(k => k !== '_attributes' && k !== '_text' && k !== '_cdata')) {
-                    schema += generateSchema(child[0], key); // Generate schema based on first item
-                 } else {
-                    schema += `      <xs:element name="${key}" type="xs:string" minOccurs="0" maxOccurs="unbounded"/>\n`;
-                 }
+        let childToProcess: IndexableElement | null = null;
+        let isComplex = false;
 
-             } else {
-                 // Array of simple types
-                 schema += `      <xs:element name="${key}" type="xs:string" minOccurs="0" maxOccurs="unbounded"/>\n`; // Assume string
-             }
-        } else {
-           // Simple key-value pair (likely from _text or direct value) - Treat as element if not handled elsewhere
-           if (key !== '_text' && key !== '_cdata'){ // Avoid duplicating _text if handled separately
-            schema += `      <xs:element name="${key}" type="xs:string" minOccurs="0" maxOccurs="1"/>\n`; // Assume string
+        if (Array.isArray(child)) {
+            if (child.length > 0 && typeof child[0] === 'object' && child[0] !== null) {
+                childToProcess = child[0] as IndexableElement;
+                 isComplex = Object.keys(childToProcess).some(k => k !== '_attributes' && k !== '_text' && k !== '_cdata');
+            }
+        } else if (typeof child === 'object' && child !== null) {
+            childToProcess = child as IndexableElement;
+             isComplex = Object.keys(childToProcess).some(k => k !== '_attributes' && k !== '_text' && k !== '_cdata');
+        }
+
+        if (isComplex && childToProcess) {
+           // Generate schema recursively for complex types
+           // If it was an array, generate based on the first item, but keep maxOccurs="unbounded"
+           const nestedSchema = generateSchema(childToProcess, key);
+           // Adjust the maxOccurs in the generated schema string if needed
+           if (Array.isArray(child)) {
+             // A bit hacky string replace, might need more robust approach
+             schema += nestedSchema.replace(/<xs:element name="[^"]+"/, `$& minOccurs="0" maxOccurs="unbounded"`);
+           } else {
+             schema += nestedSchema; // minOccurs/maxOccurs are handled inside generateSchema call for single elements
            }
+
+        } else {
+           // Simple element (might have attributes/text) or array of simple types
+           schema += `      <xs:element name="${key}" type="xs:string" minOccurs="0" maxOccurs="${maxOccurs}"/>\n`; // Assume string type
         }
       }
 
+
       schema += `    </xs:sequence>\n`;
 
-      // Add attributes if there were no child elements or handle more complex structure
-      if (!hasChildElements && attributesSchema) {
-         // If only attributes and potentially text, use simpleContent extension approach (partially formed above)
-         // This part needs refinement for correctness based on actual XML structure rules.
-         // For this basic version, let's append attributes after sequence if they exist.
-         // schema += attributesSchema; // This placement might be incorrect for complex types with attributes.
-         // Correct placement should be after sequence if mixing:
-         for (const attr in obj._attributes) {
-             schema += `    <xs:attribute name="${attr}" type="xs:string" use="optional"/>\n`;
-         }
-
-      } else if (hasChildElements && obj._attributes) {
-          // If complex type with child elements and attributes
-           for (const attr in obj._attributes) {
-             schema += `    <xs:attribute name="${attr}" type="xs:string" use="optional"/>\n`;
-         }
+      // Add attributes directly to the complexType
+      if (objAttributes) {
+          for (const attr in objAttributes) {
+              schema += `    <xs:attribute name="${attr}" type="xs:string" use="optional"/>\n`; // Assume string type and optional
+          }
       }
 
 
@@ -142,7 +154,7 @@ export function convertToXsd(xmlString: string): string | null {
     if (!rootElementName) {
         throw new Error("Could not determine root element.");
     }
-    const rootElement = jsObject[rootElementName];
+    const rootElement = jsObject[rootElementName] as IndexableElement; // Use the indexable type
 
     let finalSchema = `<?xml version="1.0" encoding="UTF-8" ?>\n<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">\n\n`;
     finalSchema += generateSchema(rootElement, rootElementName);
@@ -152,6 +164,9 @@ export function convertToXsd(xmlString: string): string | null {
 
   } catch (error: any) {
     console.error("XML to XSD conversion error:", error);
-    throw new Error(`Invalid XML or structure for XSD generation: ${error.message}`);
+     const message = error.message.includes("Unexpected close tag")
+      ? `Invalid XML: ${error.message}. Check tag matching.`
+      : `Invalid XML or structure for XSD generation: ${error.message}`;
+    throw new Error(message);
   }
 }
